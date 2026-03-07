@@ -28,8 +28,6 @@ spec:
         component: frontend
         module: n8n-nkz
     spec:
-      imagePullSecrets:
-        - name: ghcr-secret
       containers:
       - name: frontend
         image: ghcr.io/k8-benetis/n8n-module-nkz/n8n-nkz-frontend:main

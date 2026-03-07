@@ -7,7 +7,7 @@
   "short_description": "n8n workflow automation and service integration",
   "author": {
     "name": "Nekazari Team",
-    "email": "nekazari@artotxiki.com",
+    "email": "nekazari@robotika.cloud",
     "organization": "Artotxiki"
   },
   "category": "integration",
@@ -30,9 +30,9 @@
     ],
     "storage_access": false,
     "external_requests": [
-      "n8n.nekazari.artotxiki.com",
+      "n8n.nekazari.robotika.cloud",
       "intelligence-api-service.nekazari.svc.cluster.local",
-      "odoo.artotxiki.com",
+      "odoo.robotika.cloud",
       "ros2-bridge-service.nekazari.svc.cluster.local"
     ]
   },

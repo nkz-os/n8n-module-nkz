@@ -29,7 +29,7 @@ INSERT INTO marketplace_modules (
     'n8n-nkz',
     'n8n Integration Hub',
     'Workflow Orchestration Hub - Integrates n8n with Nekazari platform services including Sentinel/NDVI analysis, AI predictions, notifications, Odoo ERP, and ROS2 robotics',
-    'https://nekazari.artotxiki.com/modules/n8n-nkz/assets/remoteEntry.js',
+    'https://nekazari.robotika.cloud/modules/n8n-nkz/assets/remoteEntry.js',
     'n8n_nkz',
     './App',
     '1.0.0',

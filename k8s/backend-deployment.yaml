@@ -32,8 +32,6 @@ spec:
         prometheus.io/port: "8000"
         prometheus.io/path: "/metrics"
     spec:
-      imagePullSecrets:
-        - name: ghcr-secret
       containers:
         - name: backend
           image: ghcr.io/k8-benetis/n8n-module-nkz/n8n-nkz-backend:main
@@ -50,7 +48,7 @@ spec:
               value: "/api/n8n-nkz"
             # Keycloak Configuration
             - name: KEYCLOAK_URL
-              value: "https://auth.artotxiki.com/auth"
+              value: "https://auth.robotika.cloud/auth"
             - name: KEYCLOAK_REALM
               value: "nekazari"
             - name: JWT_AUDIENCE
@@ -82,7 +80,7 @@ spec:
             - name: ORION_URL
               value: "http://orion-ld-service:1026"
             - name: CONTEXT_URL
-              value: "https://nekazari.artotxiki.com/ngsi-ld-context.json"
+              value: "https://nekazari.robotika.cloud/ngsi-ld-context.json"
             # Redis
             - name: REDIS_HOST
               value: "redis-service"
