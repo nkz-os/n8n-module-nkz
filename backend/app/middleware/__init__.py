@@ -196,20 +196,18 @@ def require_roles(*required_roles: str):
 
 
 def get_tenant_id(
-    fiware_service: Optional[str] = Header(None, alias="fiware-service"),
+    x_tenant_id: Optional[str] = Header(None, alias="x-tenant-id"),
+    ngsild_tenant: Optional[str] = Header(None, alias="ngsild-tenant"),
     user: TokenPayload = Depends(get_current_user),
 ) -> str:
+    """Extract tenant ID from request.
+
+    Priority: X-Tenant-ID header (from gateway) > NGSILD-Tenant header > JWT tenant_id claim.
     """
-    Get tenant ID from FIWARE-Service header or user token.
-    
-    Usage:
-        @router.get("/data")
-        async def get_data(tenant_id: str = Depends(get_tenant_id)):
-            return {"tenant": tenant_id}
-    """
-    # Priority: Header > Token > Default
-    if fiware_service:
-        return fiware_service
+    if x_tenant_id:
+        return x_tenant_id
+    if ngsild_tenant:
+        return ngsild_tenant
     if user.tenant_id:
         return user.tenant_id
     return "default"
