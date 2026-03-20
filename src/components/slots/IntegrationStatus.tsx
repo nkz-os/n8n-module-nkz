@@ -36,7 +36,7 @@ interface Integration {
 }
 
 export const IntegrationStatus: React.FC<IntegrationStatusProps> = ({ className }) => {
-  const { Card, Button } = useUIKit();
+  const { Card } = useUIKit();
   const { isAuthenticated } = useAuth();
   const api = useModuleApi();
 

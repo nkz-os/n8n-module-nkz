@@ -10,7 +10,7 @@
  * - ROS2 agricultural robotics
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { 
   Workflow, 
   Satellite, 
@@ -54,7 +54,7 @@ interface WorkflowItem {
 }
 
 const ModuleApp: React.FC = () => {
-  const [integrations, setIntegrations] = useState<IntegrationStatus[]>([
+  const [integrations] = useState<IntegrationStatus[]>([
     {
       id: 'n8n',
       name: 'n8n Core',

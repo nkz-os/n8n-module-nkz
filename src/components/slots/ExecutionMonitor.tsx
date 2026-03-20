@@ -37,7 +37,7 @@ interface ExecutionItem {
 }
 
 export const ExecutionMonitor: React.FC<ExecutionMonitorProps> = ({ className }) => {
-  const { Card, Button, Select } = useUIKit();
+  const { Card } = useUIKit();
   const { isAuthenticated } = useAuth();
   const api = useModuleApi();
 
@@ -54,7 +54,7 @@ export const ExecutionMonitor: React.FC<ExecutionMonitorProps> = ({ className })
     
     setLoading(true);
     try {
-      const response = await api.getExecutions({
+      await api.getExecutions({
         status: filter !== 'all' ? filter : undefined,
         limit: expanded ? 50 : 10
       });

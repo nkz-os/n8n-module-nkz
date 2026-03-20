@@ -2,6 +2,16 @@
  * Type definitions for n8n Integration Hub
  */
 
+type GeoPoint = {
+  type: 'Point';
+  coordinates: [number, number];
+};
+
+type GeoPolygon = {
+  type: 'Polygon';
+  coordinates: number[][][];
+};
+
 // ============================================================================
 // n8n Types
 // ============================================================================
@@ -68,7 +78,7 @@ export interface SentinelAnalysisResult {
   index: VegetationIndex;
   value: number;
   cloudCover: number;
-  bounds: GeoJSON.Polygon;
+  bounds: GeoPolygon;
   imageUrl?: string;
 }
 
@@ -179,7 +189,7 @@ export interface OdooParcel {
   areaUnit: string;
   cropType: string;
   status: string;
-  location: GeoJSON.Point;
+  location: GeoPoint;
 }
 
 export interface OdooHarvest {
@@ -221,7 +231,7 @@ export interface ROS2Robot {
   type: 'tractor' | 'drone' | 'harvester' | 'sprayer' | 'seeder';
   status: 'idle' | 'working' | 'charging' | 'error' | 'maintenance';
   batteryLevel?: number;
-  position?: GeoJSON.Point;
+  position?: GeoPoint;
   currentMission?: string;
   lastSeen: string;
 }
@@ -248,7 +258,7 @@ export interface ROS2Command {
 export interface ROS2Telemetry {
   robotId: string;
   timestamp: string;
-  position: GeoJSON.Point;
+  position: GeoPoint;
   heading: number;
   speed: number;
   batteryLevel: number;

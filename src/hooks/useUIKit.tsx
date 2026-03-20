@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 
 // Define the shape of our UI Kit (fallback interface)
 interface UIKit {
