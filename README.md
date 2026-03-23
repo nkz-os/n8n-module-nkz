@@ -57,7 +57,7 @@ The n8n Integration Hub is an external module for the Nekazari Platform that pro
 
 ```bash
 # Clone the repository
-git clone https://github.com/k8-benetis/n8n-module-nkz.git
+git clone https://github.com/nkz-os/n8n-module-nkz.git
 cd n8n-module-nkz
 
 # Install frontend dependencies
@@ -411,5 +411,5 @@ AGPL-3.0 - Same as Nekazari Platform
 
 ## Support
 
-- GitHub Issues: https://github.com/k8-benetis/n8n-module-nkz
+- GitHub Issues: https://github.com/nkz-os/n8n-module-nkz
 - Email: nekazari@artotxiki.com
