@@ -30,7 +30,7 @@ spec:
     spec:
       containers:
       - name: frontend
-        image: ghcr.io/k8-benetis/n8n-module-nkz/n8n-nkz-frontend:main
+        image: ghcr.io/nkz-os/n8n-module-nkz/n8n-nkz-frontend:main
         imagePullPolicy: Always
         ports:
         - name: http
