@@ -5,6 +5,7 @@ Subscription manager creates per-tenant NGSI-LD subscriptions for Alert
 entities, forwarding notifications to the tenant's n8n workflow webhook.
 """
 
+import hmac
 import logging
 import os
 from typing import Optional
@@ -12,7 +13,7 @@ from typing import Optional
 import httpx
 import requests
 import psycopg2
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel
 from tenacity import retry, stop_after_attempt, wait_fixed
 
@@ -86,6 +87,25 @@ SUBSCRIPTION_DEF = {
     "throttling": 5,
     "isActive": True,
 }
+
+INTERNAL_SERVICE_SECRET = os.getenv("INTERNAL_SERVICE_SECRET", "")
+if INTERNAL_SERVICE_SECRET:
+    SUBSCRIPTION_DEF["notification"]["endpoint"]["receiverInfo"] = [
+        {"key": "X-Internal-Service-Secret", "value": INTERNAL_SERVICE_SECRET}
+    ]
+
+
+def _reject_unauthenticated_notify(x_internal_secret: str | None) -> HTTPException | None:
+    """Flag-gated auth for the Orion notification receiver (two-phase rollout)."""
+    require = os.getenv("NOTIFY_REQUIRE_INTERNAL_SECRET", "").lower() in (
+        "1", "true", "yes", "on"
+    )
+    if not require:
+        return None
+    secret = os.getenv("INTERNAL_SERVICE_SECRET", "")
+    if not secret or not hmac.compare_digest(x_internal_secret or "", secret):
+        return HTTPException(status_code=401, detail="missing or invalid internal secret")
+    return None
 
 
 def _make_orion_headers(tenant_id: str) -> dict:
@@ -187,12 +207,18 @@ def ensure_alert_subscriptions_for_all_tenants():
 # =============================================================================
 
 @router.post("/inbound")
-async def handle_inbound_webhook(request: Request):
+async def handle_inbound_webhook(
+    request: Request,
+    x_internal_secret: str | None = Header(None, alias="X-Internal-Service-Secret"),
+):
     """Receive Orion-LD subscription notification for Alert entities.
 
     Extracts the Alert data and forwards to the tenant's n8n workflow
     webhook trigger. Returns 200 immediately.
     """
+    reject = _reject_unauthenticated_notify(x_internal_secret)
+    if reject:
+        raise reject
     tenant_id = (
         request.headers.get("NGSILD-Tenant")
         or request.headers.get("Fiware-Service")
