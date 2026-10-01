@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
+from app.logging_setup import configure_logging
 from app.routers import (
     health,
     n8n,
@@ -55,6 +56,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     """Application factory."""
     settings = get_settings()
+    configure_logging(settings.log_level)
     
     app = FastAPI(
         title=settings.app_name,
