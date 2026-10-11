@@ -94,6 +94,69 @@ def drop_n8n_tenant_db(tenant_id: str) -> bool:
         conn.close()
 
 
+def tenant_pod_labels(name: str, tenant_id: str) -> dict:
+    """Pod template labels for a tenant n8n instance.
+
+    The egress-restricted label opts the pod into the tenant-workload egress
+    NetworkPolicy; the Deployment selector stays {"app": name}.
+    """
+    return {
+        "app": name,
+        "module": "n8n-nkz",
+        "tenant": tenant_id,
+        "nkz-os.org/egress-restricted": "true",
+    }
+
+
+def tenant_env(name: str, db_name: str, path_prefix: str, host: str) -> list:
+    """Container env for a tenant n8n instance.
+
+    N8N_BLOCK_ENV_ACCESS_IN_NODE stops Code nodes reading process.env, which
+    holds the shared database password.
+    """
+    return [
+        client.V1EnvVar(name="N8N_HOST", value="n8n.robotika.cloud"),
+        client.V1EnvVar(name="N8N_PROTOCOL", value="https"),
+        client.V1EnvVar(name="N8N_PATH_PREFIX", value=path_prefix),
+        client.V1EnvVar(name="WEBHOOK_URL", value=f"https://{host}/"),
+        client.V1EnvVar(name="N8N_BASIC_AUTH_ACTIVE", value="true"),
+        client.V1EnvVar(
+            name="N8N_BASIC_AUTH_USER",
+            value_from=client.V1EnvVarSource(
+                secret_key_ref=client.V1SecretKeySelector(
+                    name=f"{name}-secret", key="username"
+                )
+            ),
+        ),
+        client.V1EnvVar(
+            name="N8N_BASIC_AUTH_PASSWORD",
+            value_from=client.V1EnvVarSource(
+                secret_key_ref=client.V1SecretKeySelector(
+                    name=f"{name}-secret", key="password"
+                )
+            ),
+        ),
+        client.V1EnvVar(name="DB_TYPE", value="postgresdb"),
+        client.V1EnvVar(name="DB_POSTGRESDB_HOST", value="postgresql-service"),
+        client.V1EnvVar(name="DB_POSTGRESDB_PORT", value="5432"),
+        client.V1EnvVar(name="DB_POSTGRESDB_DATABASE", value=db_name),
+        client.V1EnvVar(name="DB_POSTGRESDB_USER", value="postgres"),
+        client.V1EnvVar(
+            name="DB_POSTGRESDB_PASSWORD",
+            value_from=client.V1EnvVarSource(
+                secret_key_ref=client.V1SecretKeySelector(
+                    name="postgresql-secret", key="password"
+                )
+            ),
+        ),
+        client.V1EnvVar(name="GENERIC_TIMEZONE", value="Europe/Madrid"),
+        client.V1EnvVar(name="N8N_METRICS", value="true"),
+        client.V1EnvVar(name="N8N_BLOCK_ENV_ACCESS_IN_NODE", value="true"),
+        client.V1EnvVar(name="EXECUTIONS_DATA_PRUNE", value="true"),
+        client.V1EnvVar(name="EXECUTIONS_DATA_MAX_AGE", value="168"),
+    ]
+
+
 def provision_n8n_tenant(tenant_id: str) -> dict:
     """Provision all K8s resources for a tenant's n8n instance.
     Returns dict with URL, credentials, and resource names.
@@ -161,7 +224,7 @@ def provision_n8n_tenant(tenant_id: str) -> dict:
             ),
             template=client.V1PodTemplateSpec(
                 metadata=client.V1ObjectMeta(
-                    labels={"app": name, "module": "n8n-nkz", "tenant": tenant_id}
+                    labels=tenant_pod_labels(name, tenant_id)
                 ),
                 spec=client.V1PodSpec(
                     containers=[
@@ -169,46 +232,7 @@ def provision_n8n_tenant(tenant_id: str) -> dict:
                             name="n8n",
                             image="n8nio/n8n@sha256:c0c39b1ca69d43f736bc65f8ddd70972a8989f736e8a4b6a075823f98cc48a23",
                             ports=[client.V1ContainerPort(container_port=5678)],
-                            env=[
-                                client.V1EnvVar(name="N8N_HOST", value="n8n.robotika.cloud"),
-                                client.V1EnvVar(name="N8N_PROTOCOL", value="https"),
-                                client.V1EnvVar(name="N8N_PATH_PREFIX", value=path_prefix),
-                                client.V1EnvVar(name="WEBHOOK_URL", value=f"https://{host}/"),
-                                client.V1EnvVar(name="N8N_BASIC_AUTH_ACTIVE", value="true"),
-                                client.V1EnvVar(
-                                    name="N8N_BASIC_AUTH_USER",
-                                    value_from=client.V1EnvVarSource(
-                                        secret_key_ref=client.V1SecretKeySelector(
-                                            name=f"{name}-secret", key="username"
-                                        )
-                                    ),
-                                ),
-                                client.V1EnvVar(
-                                    name="N8N_BASIC_AUTH_PASSWORD",
-                                    value_from=client.V1EnvVarSource(
-                                        secret_key_ref=client.V1SecretKeySelector(
-                                            name=f"{name}-secret", key="password"
-                                        )
-                                    ),
-                                ),
-                                client.V1EnvVar(name="DB_TYPE", value="postgresdb"),
-                                client.V1EnvVar(name="DB_POSTGRESDB_HOST", value="postgresql-service"),
-                                client.V1EnvVar(name="DB_POSTGRESDB_PORT", value="5432"),
-                                client.V1EnvVar(name="DB_POSTGRESDB_DATABASE", value=db_name),
-                                client.V1EnvVar(name="DB_POSTGRESDB_USER", value="postgres"),
-                                client.V1EnvVar(
-                                    name="DB_POSTGRESDB_PASSWORD",
-                                    value_from=client.V1EnvVarSource(
-                                        secret_key_ref=client.V1SecretKeySelector(
-                                            name="postgresql-secret", key="password"
-                                        )
-                                    ),
-                                ),
-                                client.V1EnvVar(name="GENERIC_TIMEZONE", value="Europe/Madrid"),
-                                client.V1EnvVar(name="N8N_METRICS", value="true"),
-                                client.V1EnvVar(name="EXECUTIONS_DATA_PRUNE", value="true"),
-                                client.V1EnvVar(name="EXECUTIONS_DATA_MAX_AGE", value="168"),
-                            ],
+                            env=tenant_env(name, db_name, path_prefix, host),
                             resources=client.V1ResourceRequirements(
                                 requests={"memory": "256Mi", "cpu": "100m"},
                                 limits={"memory": "1Gi", "cpu": "500m"},
