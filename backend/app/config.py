@@ -56,7 +56,9 @@ class Settings(BaseSettings):
     ndvi_worker_url: str = "http://ndvi-worker-service:8000"
     
     # Notification Services
-    email_service_url: str = "http://email-service:8000"
+    email_service_url: str = "http://email-service:5000"
+    # Shared secret for service-to-service calls (email-service requires it)
+    internal_service_secret: str = ""
     
     # Odoo ERP
     odoo_url: str = ""

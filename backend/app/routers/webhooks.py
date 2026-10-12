@@ -33,7 +33,7 @@ CONTEXT_URL = os.getenv(
     "CONTEXT_URL", "https://nekazari.robotika.cloud/ngsi-ld-context.json"
 )
 DATABASE_URL = os.getenv("DATABASE_URL", "")
-SERVICE_HOST = os.getenv("SERVICE_HOST", "n8n-module-service")
+SERVICE_HOST = os.getenv("SERVICE_HOST", "n8n-nkz-api-service")
 SERVICE_PORT = os.getenv("SERVICE_PORT", "8000")
 NOTIFICATION_URL = (
     f"http://{SERVICE_HOST}:{SERVICE_PORT}/api/n8n-nkz/webhooks/inbound"
@@ -142,10 +142,35 @@ def _get_active_tenants() -> list:
         return []
 
 
-def _ensure_alert_subscription(tenant_id: str):
-    """Create Alert subscription for a tenant if it doesn't exist.
+def _subscription_diverges(existing: dict) -> str | None:
+    """Why an existing Alert subscription must be recreated, or None if it is current.
 
-    Only creates if the tenant has n8n configured.
+    A subscription left behind by an older deployment keeps notifying a dead
+    endpoint or carrying a rotated secret; Orion also pauses it after repeated
+    failures. Matching by description alone would keep it forever.
+    """
+    endpoint = (existing.get("notification") or {}).get("endpoint") or {}
+    if endpoint.get("uri") != NOTIFICATION_URL:
+        return f"endpoint {endpoint.get('uri')!r} is not {NOTIFICATION_URL!r}"
+    if existing.get("status") == "paused" or existing.get("isActive") is False:
+        return f"status {existing.get('status')!r}"
+    if INTERNAL_SERVICE_SECRET:
+        values = [
+            r.get("value") for r in endpoint.get("receiverInfo") or []
+            if r.get("key") == "X-Internal-Service-Secret"
+        ]
+        if not values:
+            return "missing internal secret"
+        if values[0] != INTERNAL_SERVICE_SECRET:
+            return "stale internal secret"
+    return None
+
+
+def _ensure_alert_subscription(tenant_id: str):
+    """Create the Alert subscription for a tenant, recreating a stale one.
+
+    Only for tenants with n8n configured. An existing subscription is kept
+    only while its endpoint, status and secret are current.
     """
     config = get_tenant_config(tenant_id)
     if not config or not config.get("n8n_url"):
@@ -169,7 +194,25 @@ def _ensure_alert_subscription(tenant_id: str):
 
         existing = resp.json() if isinstance(resp.json(), list) else []
         desc = SUBSCRIPTION_DEF["description"]
-        if any(s.get("description") == desc for s in existing):
+        ours = [s for s in existing if s.get("description") == desc]
+        current = [s for s in ours if _subscription_diverges(s) is None]
+        for stale in (s for s in ours if _subscription_diverges(s) is not None):
+            logger.info(
+                "Recreating Alert subscription %s for tenant %s: %s",
+                stale.get("id"), tenant_id, _subscription_diverges(stale),
+            )
+            del_resp = requests.delete(
+                f"{ORION_URL}/ngsi-ld/v1/subscriptions/{stale.get('id')}",
+                headers=headers,
+                timeout=10,
+            )
+            if del_resp.status_code not in (204, 404):
+                logger.error(
+                    "Failed to delete stale Alert subscription %s for %s: %s",
+                    stale.get("id"), tenant_id, del_resp.status_code,
+                )
+                return
+        if current:
             logger.debug(
                 "Alert subscription already exists for tenant %s", tenant_id
             )

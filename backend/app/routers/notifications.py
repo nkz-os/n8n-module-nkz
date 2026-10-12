@@ -2,6 +2,7 @@
 Notifications Router - Multi-channel alert orchestration
 """
 
+import json
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -11,6 +12,30 @@ from app.config import get_settings, Settings
 from app.middleware import get_current_user, get_tenant_id, require_roles, TokenPayload
 
 router = APIRouter(prefix="/notifications")
+
+# The platform email service exposes typed routes; notifications go to this one
+# and must carry the shared internal secret.
+EMAIL_NOTIFICATION_PATH = "/send/notification"
+
+
+def email_payload(recipient: str, template: str, data: dict) -> dict:
+    """Map a channel notification onto the email service's notification contract."""
+    message = data.get("message") or data.get("body")
+    if message is None:
+        message = json.dumps({k: v for k, v in data.items() if k != "farmer_name"}) if data else ""
+    return {
+        "email": recipient,
+        "farmer_name": str(data.get("farmer_name") or data.get("name") or recipient),
+        "notification_type": template,
+        "message": str(message),
+    }
+
+
+def email_headers(tenant_id: str, settings: Settings) -> dict:
+    return {
+        "fiware-service": tenant_id,
+        "X-Internal-Service-Secret": settings.internal_service_secret,
+    }
 
 
 # =============================================================================
@@ -63,14 +88,9 @@ async def send_notification(
                     # Send via email service
                     async with httpx.AsyncClient(timeout=30.0) as client:
                         response = await client.post(
-                            f"{settings.email_service_url}/send",
-                            json={
-                                "to": recipient,
-                                "template": request.template,
-                                "data": request.data,
-                                "priority": request.priority,
-                            },
-                            headers={"fiware-service": tenant_id}
+                            f"{settings.email_service_url}{EMAIL_NOTIFICATION_PATH}",
+                            json=email_payload(recipient, request.template, request.data),
+                            headers=email_headers(tenant_id, settings),
                         )
                         response.raise_for_status()
                         results.append({
@@ -158,13 +178,13 @@ async def test_notification_channel(
         if request.channel == "email":
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
-                    f"{settings.email_service_url}/send",
-                    json={
-                        "to": request.recipient,
-                        "subject": "[TEST] Nekazari Notification Test",
-                        "body": f"This is a test notification from n8n Integration Hub.\nTriggered by: {user.user_id}",
-                    },
-                    headers={"fiware-service": tenant_id}
+                    f"{settings.email_service_url}{EMAIL_NOTIFICATION_PATH}",
+                    json=email_payload(
+                        request.recipient,
+                        "test",
+                        {"message": f"This is a test notification from n8n Integration Hub.\nTriggered by: {user.user_id}"},
+                    ),
+                    headers=email_headers(tenant_id, settings),
                 )
                 response.raise_for_status()
                 return {
