@@ -8,6 +8,7 @@ from app.common.sanitize import n8n_resource_name, n8n_db_name, n8n_host, saniti
 from app.common.fernet_crypto import encrypt_token
 from app.common.tenant_config_service import get_tenant_config, upsert_tenant_config
 from app.common.db import get_db_connection_safe
+from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -240,7 +241,7 @@ def provision_n8n_tenant(tenant_id: str) -> dict:
                     containers=[
                         client.V1Container(
                             name="n8n",
-                            image="n8nio/n8n@sha256:c0c39b1ca69d43f736bc65f8ddd70972a8989f736e8a4b6a075823f98cc48a23",
+                            image=get_settings().n8n_instance_image,
                             ports=[client.V1ContainerPort(container_port=5678)],
                             env=tenant_env(name, db_name, path_prefix, host),
                             resources=client.V1ResourceRequirements(

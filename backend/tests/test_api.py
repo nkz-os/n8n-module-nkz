@@ -81,9 +81,26 @@ class TestWebhookEndpoints:
             "/api/n8n-nkz/webhooks/inbound",
             json={"event": "test", "data": {}}
         )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["received"] == True
+        assert response.status_code == 204
+        assert response.content == b""
+
+    def test_inbound_webhook_answers_204_without_body(self, client):
+        """Orion-LD pauses a subscription after three replies it cannot read."""
+        response = client.post(
+            "/api/n8n-nkz/webhooks/inbound",
+            json={"data": []},
+            headers={"NGSILD-Tenant": "acme"},
+        )
+        assert response.status_code == 204
+        assert response.content == b""
+
+    def test_inbound_webhook_rejects_invalid_json(self, client):
+        response = client.post(
+            "/api/n8n-nkz/webhooks/inbound",
+            content="{not json",
+            headers={"Content-Type": "application/json", "NGSILD-Tenant": "acme"},
+        )
+        assert response.status_code == 400
 
 
 class TestOpenAPI:

@@ -45,7 +45,11 @@ class Settings(BaseSettings):
 
     # Provisioning
     n8n_grace_period_days: int = 30
-    n8n_instance_image: str = "n8nio/n8n:latest"
+    # Digest of n8nio/n8n:2.40.7. Pinned so every tenant runs the same release
+    # and a re-provision never downgrades an instance below its database schema.
+    n8n_instance_image: str = (
+        "n8nio/n8n@sha256:ffeb52485f78b1b06c9a832205853cf75da72a07a514c9a27724df85979d6c34"
+    )
     frontend_url: str = "https://nekazari.robotika.cloud"
 
     # Intelligence Module

@@ -13,7 +13,7 @@ from typing import Optional
 import httpx
 import requests
 import psycopg2
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from pydantic import BaseModel
 from tenacity import retry, stop_after_attempt, wait_fixed
 
@@ -38,6 +38,9 @@ SERVICE_PORT = os.getenv("SERVICE_PORT", "8000")
 NOTIFICATION_URL = (
     f"http://{SERVICE_HOST}:{SERVICE_PORT}/api/n8n-nkz/webhooks/inbound"
 )
+# Orion pages subscription listings at 20 by default. A tenant with more
+# subscriptions than that would never show ours, and every boot would add one.
+SUBSCRIPTION_LIST_LIMIT = 1000
 
 
 # =============================================================================
@@ -183,6 +186,7 @@ def _ensure_alert_subscription(tenant_id: str):
         resp = requests.get(
             f"{ORION_URL}/ngsi-ld/v1/subscriptions",
             headers=headers,
+            params={"limit": SUBSCRIPTION_LIST_LIMIT},
             timeout=10,
         )
         if resp.status_code != 200:
@@ -261,15 +265,18 @@ def ensure_alert_subscriptions_for_all_tenants():
 # Inbound Webhook — receives Orion-LD Alert notifications
 # =============================================================================
 
-@router.post("/inbound")
+@router.post("/inbound", status_code=status.HTTP_204_NO_CONTENT)
 async def handle_inbound_webhook(
     request: Request,
     x_internal_secret: str | None = Header(None, alias="X-Internal-Service-Secret"),
-):
+) -> Response:
     """Receive Orion-LD subscription notification for Alert entities.
 
     Extracts the Alert data and forwards to the tenant's n8n workflow
-    webhook trigger. Returns 200 immediately.
+    webhook trigger. Always answers 204 with no body: Orion-LD treats any
+    other reply whose Content-Length header is not capitalised as a failed
+    notification (uvicorn lowercases headers) and pauses the subscription
+    after three failures.
     """
     reject = _reject_unauthenticated_notify(x_internal_secret)
     if reject:
@@ -281,23 +288,23 @@ async def handle_inbound_webhook(
     )
     if not tenant_id:
         logger.warning("Inbound webhook missing tenant context")
-        return {"received": True, "status": "ignored"}
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     try:
         body = await request.json()
     except Exception:
         logger.error("Invalid JSON in inbound webhook payload")
-        return {"received": True, "status": "error"}, 400
+        raise HTTPException(status_code=400, detail="Invalid JSON")
 
     entities = body.get("data", []) if isinstance(body, dict) else []
     if not entities:
-        return {"received": True, "status": "ok", "forwarded": 0}
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     # Check if tenant has n8n configured
     config = get_tenant_config(tenant_id)
     if not config or not config.get("n8n_url"):
         logger.debug("Tenant %s has no n8n, skipping forward", tenant_id)
-        return {"received": True, "status": "ignored", "forwarded": 0}
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     # Decrypt n8n API key if available
     api_key = ""
@@ -347,7 +354,7 @@ async def handle_inbound_webhook(
         "Forwarded %d/%d alerts to n8n for tenant %s",
         forwarded, len(entities), tenant_id,
     )
-    return {"received": True, "status": "ok", "forwarded": forwarded}
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # =============================================================================

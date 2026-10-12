@@ -85,3 +85,13 @@ def test_ensure_creates_when_none_is_current(monkeypatch):
     monkeypatch.setattr(wh.requests, "post", lambda url, **kw: calls.append("post") or _Resp(201))
     wh._ensure_alert_subscription("acme")
     assert calls == ["delete", "post"]
+
+
+def test_listing_asks_for_every_subscription(monkeypatch):
+    monkeypatch.setattr(wh, "INTERNAL_SERVICE_SECRET", "s3cret")
+    monkeypatch.setattr(wh, "get_tenant_config", lambda t: {"n8n_url": "http://n8n"})
+    seen = {}
+    monkeypatch.setattr(wh.requests, "get", lambda url, **kw: seen.update(kw) or _Resp(200, []))
+    monkeypatch.setattr(wh.requests, "post", lambda url, **kw: _Resp(201))
+    wh._ensure_alert_subscription("acme")
+    assert seen["params"]["limit"] >= 1000

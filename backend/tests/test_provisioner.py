@@ -49,3 +49,9 @@ def test_tenant_pvc_uses_volume_resource_requirements():
     assert isinstance(pvc.spec.resources, client.V1VolumeResourceRequirements)
     assert pvc.spec.resources.requests == {"storage": "10Gi"}
     assert pvc.metadata.name == "n8n-acme-workflows"
+
+
+def test_tenant_image_is_digest_pinned():
+    from app.config import get_settings
+
+    assert get_settings().n8n_instance_image.startswith("n8nio/n8n@sha256:")
