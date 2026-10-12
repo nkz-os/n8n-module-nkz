@@ -157,6 +157,26 @@ def tenant_env(name: str, db_name: str, path_prefix: str, host: str) -> list:
     ]
 
 
+def tenant_pvc(name: str) -> "client.V1PersistentVolumeClaim":
+    """Workflow storage for a tenant instance.
+
+    PVC resources use V1VolumeResourceRequirements: with kubernetes>=30 the
+    PVC spec rejects V1ResourceRequirements (pydantic model_type error), which
+    broke every provision and re-provision until the class was corrected.
+    """
+    return client.V1PersistentVolumeClaim(
+        api_version="v1",
+        kind="PersistentVolumeClaim",
+        metadata=client.V1ObjectMeta(name=f"{name}-workflows", namespace="nekazari"),
+        spec=client.V1PersistentVolumeClaimSpec(
+            access_modes=["ReadWriteOnce"],
+            resources=client.V1VolumeResourceRequirements(
+                requests={"storage": "10Gi"}
+            ),
+        ),
+    )
+
+
 def provision_n8n_tenant(tenant_id: str) -> dict:
     """Provision all K8s resources for a tenant's n8n instance.
     Returns dict with URL, credentials, and resource names.
@@ -194,17 +214,7 @@ def provision_n8n_tenant(tenant_id: str) -> dict:
 
     # 2. Create PVC (idempotent)
     try:
-        pvc = client.V1PersistentVolumeClaim(
-            api_version="v1",
-            kind="PersistentVolumeClaim",
-            metadata=client.V1ObjectMeta(name=f"{name}-workflows", namespace="nekazari"),
-            spec=client.V1PersistentVolumeClaimSpec(
-                access_modes=["ReadWriteOnce"],
-                resources=client.V1ResourceRequirements(
-                    requests={"storage": "10Gi"}
-                ),
-            ),
-        )
+        pvc = tenant_pvc(name)
         core_v1.create_namespaced_persistent_volume_claim("nekazari", pvc)
     except client.ApiException as e:
         if e.status == 409:

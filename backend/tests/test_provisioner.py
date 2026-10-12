@@ -39,3 +39,13 @@ def test_tenant_env_blocks_process_env_in_code_nodes():
     assert env["N8N_BLOCK_ENV_ACCESS_IN_NODE"] == "true"
     assert env["DB_TYPE"] == "postgresdb"
     assert env["DB_POSTGRESDB_HOST"] == "postgresql-service"
+
+
+def test_tenant_pvc_uses_volume_resource_requirements():
+    from kubernetes import client
+    from app.common.n8n_provisioner import tenant_pvc
+
+    pvc = tenant_pvc("n8n-acme")
+    assert isinstance(pvc.spec.resources, client.V1VolumeResourceRequirements)
+    assert pvc.spec.resources.requests == {"storage": "10Gi"}
+    assert pvc.metadata.name == "n8n-acme-workflows"

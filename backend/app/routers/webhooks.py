@@ -213,6 +213,18 @@ def _ensure_alert_subscription(tenant_id: str):
                 )
                 return
         if current:
+            # Two replicas booting together can each create one before Orion's
+            # subscription cache shows the other's; keep the first, drop the rest.
+            for extra in current[1:]:
+                logger.info(
+                    "Deleting duplicate Alert subscription %s for tenant %s",
+                    extra.get("id"), tenant_id,
+                )
+                requests.delete(
+                    f"{ORION_URL}/ngsi-ld/v1/subscriptions/{extra.get('id')}",
+                    headers=headers,
+                    timeout=10,
+                )
             logger.debug(
                 "Alert subscription already exists for tenant %s", tenant_id
             )
