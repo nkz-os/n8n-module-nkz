@@ -1,10 +1,12 @@
 """K8s provisioning engine for per-tenant n8n instances."""
 
-import secrets
+import base64
 import logging
+import re
+import secrets
 from datetime import datetime, timezone
 from kubernetes import client, config
-from app.common.sanitize import n8n_resource_name, n8n_db_name, n8n_host, sanitize_tenant_id
+from app.common.sanitize import n8n_resource_name, n8n_db_name, n8n_db_role, n8n_host, sanitize_tenant_id
 from app.common.fernet_crypto import encrypt_token
 from app.common.tenant_config_service import get_tenant_config, upsert_tenant_config
 from app.common.db import get_db_connection_safe
@@ -46,11 +48,51 @@ def generate_credentials() -> dict:
         "username": f"admin_{secrets.token_hex(4)}",
         "password": secrets.token_urlsafe(16),
         "api_key": secrets.token_urlsafe(24),
+        "db_password": secrets.token_urlsafe(24),
     }
 
 
-def create_n8n_tenant_db(tenant_id: str) -> bool:
-    """Create a dedicated PostgreSQL database for the tenant's n8n."""
+_IDENT = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
+
+
+def _ident(name: str) -> str:
+    """Quote a database identifier that the sanitizer already constrained."""
+    if not _IDENT.match(name):
+        raise ValueError(f"unsafe identifier: {name!r}")
+    return f'"{name}"'
+
+
+def tenant_db_sql(db_name: str, role: str, password: str, db_exists: bool = False) -> list:
+    """Statements giving a tenant n8n its own role and database; re-runnable.
+
+    The role owns only its database and PUBLIC loses CONNECT on it, so a Code
+    node inside that n8n cannot reach any other database. The password is a
+    bound parameter: it never appears in SQL text or in logs. Re-provisioning
+    rotates the password to the one held in the tenant Secret.
+    """
+    db, r = _ident(db_name), _ident(role)
+    stmts = [
+        (
+            "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '" + role + "') THEN "
+            f"CREATE ROLE {r} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT; "
+            "END IF; END $$",
+            None,
+        ),
+        (f"ALTER ROLE {r} PASSWORD %s", (password,)),
+        (f"GRANT {r} TO CURRENT_USER", None),
+    ]
+    if not db_exists:
+        stmts.append((f"CREATE DATABASE {db} OWNER {r}", None))
+    stmts += [
+        (f"ALTER DATABASE {db} OWNER TO {r}", None),
+        (f"REVOKE CONNECT ON DATABASE {db} FROM PUBLIC", None),
+        (f"GRANT CONNECT ON DATABASE {db} TO {r}", None),
+    ]
+    return stmts
+
+
+def create_n8n_tenant_db(tenant_id: str, db_password: str) -> bool:
+    """Create (or converge) the tenant's n8n database and its owning role."""
     conn = get_db_connection_safe()
     if not conn:
         return False
@@ -58,20 +100,37 @@ def create_n8n_tenant_db(tenant_id: str) -> bool:
         conn.autocommit = True
         cur = conn.cursor()
         db_name = n8n_db_name(tenant_id)
+        role = n8n_db_role(tenant_id)
 
         cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (db_name,))
-        if cur.fetchone():
-            logger.info(f"Database {db_name} already exists")
-        else:
-            cur.execute(f'CREATE DATABASE "{db_name}"')
+        exists = cur.fetchone() is not None
+        for stmt, params in tenant_db_sql(db_name, role, db_password, db_exists=exists):
+            cur.execute(stmt, params)
+        logger.info("n8n tenant database ready: db=%s role=%s existed=%s", db_name, role, exists)
 
         cur.close()
         return True
     except Exception as e:
-        logger.error(f"Failed to create DB for tenant {tenant_id}: {e}")
+        logger.error(f"Failed to prepare DB for tenant {tenant_id}: {type(e).__name__}")
         return False
     finally:
         conn.close()
+
+
+def _ensure_db_credentials(core_v1, name: str, role: str, fallback_password: str) -> str:
+    """Password of the tenant's database role, taken from its Secret.
+
+    Secrets created before the per-tenant role lack the db keys: add them
+    (with the freshly generated password) so the Deployment can reference them.
+    """
+    existing = core_v1.read_namespaced_secret(f"{name}-secret", NAMESPACE)
+    data = existing.data or {}
+    if "db-password" in data:
+        return base64.b64decode(data["db-password"]).decode()
+    core_v1.patch_namespaced_secret(
+        f"{name}-secret", NAMESPACE, {"stringData": {"db-user": role, "db-password": fallback_password}}
+    )
+    return fallback_password
 
 
 def drop_n8n_tenant_db(tenant_id: str) -> bool:
@@ -85,6 +144,7 @@ def drop_n8n_tenant_db(tenant_id: str) -> bool:
         db_name = n8n_db_name(tenant_id)
 
         cur.execute(f'DROP DATABASE IF EXISTS "{db_name}"')
+        cur.execute(f"DROP ROLE IF EXISTS {_ident(n8n_db_role(tenant_id))}")
 
         cur.close()
         return True
@@ -141,12 +201,19 @@ def tenant_env(name: str, db_name: str, path_prefix: str, host: str) -> list:
         client.V1EnvVar(name="DB_POSTGRESDB_HOST", value="postgresql-service"),
         client.V1EnvVar(name="DB_POSTGRESDB_PORT", value="5432"),
         client.V1EnvVar(name="DB_POSTGRESDB_DATABASE", value=db_name),
-        client.V1EnvVar(name="DB_POSTGRESDB_USER", value="postgres"),
+        client.V1EnvVar(
+            name="DB_POSTGRESDB_USER",
+            value_from=client.V1EnvVarSource(
+                secret_key_ref=client.V1SecretKeySelector(
+                    name=f"{name}-secret", key="db-user"
+                )
+            ),
+        ),
         client.V1EnvVar(
             name="DB_POSTGRESDB_PASSWORD",
             value_from=client.V1EnvVarSource(
                 secret_key_ref=client.V1SecretKeySelector(
-                    name="postgresql-secret", key="password"
+                    name=f"{name}-secret", key="db-password"
                 )
             ),
         ),
@@ -204,14 +271,16 @@ def provision_n8n_tenant(tenant_id: str) -> dict:
                 "username": creds["username"],
                 "password": creds["password"],
                 "api-key": creds["api_key"],
+                "db-user": n8n_db_role(tenant_id),
+                "db-password": creds["db_password"],
             },
         )
         core_v1.create_namespaced_secret("nekazari", secret)
     except client.ApiException as e:
-        if e.status == 409:
-            logger.info(f"Secret {name}-secret already exists, reusing")
-        else:
+        if e.status != 409:
             raise
+        logger.info(f"Secret {name}-secret already exists, reusing")
+        creds["db_password"] = _ensure_db_credentials(core_v1, name, n8n_db_role(tenant_id), creds["db_password"])
 
     # 2. Create PVC (idempotent)
     try:
@@ -321,8 +390,8 @@ def provision_n8n_tenant(tenant_id: str) -> dict:
         else:
             raise
 
-    # 7. Create database
-    create_n8n_tenant_db(tenant_id)
+    # 7. Create database and its owning role (password = the tenant Secret's)
+    create_n8n_tenant_db(tenant_id, creds["db_password"])
 
     # 8. Save config
     url = f"https://{host}"

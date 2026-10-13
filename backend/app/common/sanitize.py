@@ -24,6 +24,11 @@ def n8n_db_name(tenant_id: str) -> str:
     return f"n8n_{safe}"
 
 
+def n8n_db_role(tenant_id: str) -> str:
+    """PostgreSQL role that owns the tenant's n8n database (same name as the database)."""
+    return n8n_db_name(tenant_id)
+
+
 def n8n_host(tenant_id: str) -> str:
     """Generate the n8n URL for a tenant (subdomain-based: <tenant>.n8n.robotika.cloud)."""
     safe = sanitize_tenant_id(tenant_id)
